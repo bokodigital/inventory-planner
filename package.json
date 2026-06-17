@@ -1,0 +1,23 @@
+{
+  "name": "inventory-planner-saas",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "next start",
+    "postinstall": "prisma generate",
+    "db:push": "prisma db push",
+    "test:reorder": "node tests/reorder.test.mjs"
+  },
+  "dependencies": {
+    "next": "^14.2.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "@prisma/client": "^5.18.0",
+    "resend": "^4.0.0"
+  },
+  "devDependencies": {
+    "prisma": "^5.18.0"
+  }
+}

@@ -1,0 +1,49 @@
+// Boko Inventory Planner — data model
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Shop {
+  id            String      @id @default(cuid())
+  shopDomain    String      @unique            // e.g. acme.myshopify.com
+  accessToken   String                          // AES-256-GCM encrypted
+  scopes        String?
+  installedAt   DateTime    @default(now())
+  uninstalledAt DateTime?
+  settings      Settings?
+  digestRuns    DigestRun[]
+}
+
+model Settings {
+  id              String   @id @default(cuid())
+  shop            Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  shopId          String   @unique
+  notifyEmail     String?                       // client's recipient address (only email field they fill)
+  lookbackDays    Int      @default(30)
+  leadTimeDays    Int      @default(14)
+  targetCoverDays Int      @default(30)
+  cadence         String   @default("weekly")   // daily | weekly | fortnightly | monthly
+  dayOfWeek       Int      @default(1)           // 0=Sun .. 6=Sat (used for weekly/fortnightly)
+  dayOfMonth      Int      @default(1)           // used for monthly
+  hour            Int      @default(9)           // 0..23 local hour
+  timezone        String   @default("Australia/Sydney")
+  enabled         Boolean  @default(true)
+  updatedAt       DateTime @updatedAt
+}
+
+model DigestRun {
+  id           String   @id @default(cuid())
+  shop         Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  shopId       String
+  ranAt        DateTime @default(now())
+  status       String                            // sent | skipped | error
+  itemsFlagged Int      @default(0)
+  emailId      String?
+  error        String?
+  @@index([shopId, ranAt])
+}

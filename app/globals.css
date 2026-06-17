@@ -1,0 +1,5 @@
+:root { color-scheme: light; --lime:#BFFC00; --black:#0A0A0A; --gray:#4B5563; --lgray:#F0F2F5; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--lgray); color:var(--black);
+  font-family:'Poppins',system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+a { color: inherit; }
