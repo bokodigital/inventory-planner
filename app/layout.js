@@ -9,7 +9,6 @@ export const metadata = {
 function BokoLogo({ height = 40 }) {
   const width = Math.round(height * 2.811);
   return (
-    <img src="">
     <svg height={height} width={width} viewBox="5750 -2679.9 12500 4447.2"
       xmlns="http://www.w3.org/2000/svg"
       style={{ display: "block", overflow: "visible", flexShrink: 0 }}
