@@ -106,7 +106,7 @@ export default function Settings() {
   );
 }
 
-const card = { background: "#fff", border: "1px solid #E5E7EB", borderRadius: 14, padding: "22px 24px", maxWidth: 560 };
+const card = { background: "#fff", border: "1px solid #E5E7EB", borderRadius: 14, padding: "22px 24px", maxWidth: 560, margin: "0 auto" };
 const inp = { width: "100%", padding: "9px 12px", border: "1.5px solid #E5E7EB", borderRadius: 9, fontSize: 14, fontFamily: "inherit", background: "#FAFAFA", outline: "none", boxSizing: "border-box" };
 const btn = { display: "inline-block", background: "#BFFC00", color: "#0A0A0A", fontWeight: 800, padding: "10px 18px", borderRadius: 10, textDecoration: "none", border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 14 };
 
@@ -118,7 +118,7 @@ function Row({ label, hint, children }) {
   </div>;
 }
 function Shell({ children, sub }) {
-  return <main style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 16px 60px" }}>
+  return <main style={{ maxWidth: 600, margin: "0 auto", padding: "24px 16px 60px" }}>
     <div style={{ marginBottom: 16 }}>
       <span style={{ fontWeight: 900, fontSize: 22 }}>Settings</span>
       {sub && <span style={{ color: "#6B7280", marginLeft: 10, fontSize: 13 }}>{sub}</span>}
