@@ -11,13 +11,27 @@ const RANK = { now: 0, soon: 1, ok: 2, none: 3 };
 
 export default function Dashboard() {
   const [state, setState] = useState({ loading: true });
+  const [filters, setFilters] = useState({ lookback: 30, lead: 14, cover: 30 });
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    fetch("/api/shop/data")
-      .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
-      .then(({ ok, j }) => setState({ loading: false, ok, data: j }))
-      .catch((e) => setState({ loading: false, ok: false, data: { message: String(e) } }));
-  }, []);
+  async function load(f) {
+    setBusy(true);
+    try {
+      const qs = f ? `?lookback=${f.lookback}&lead=${f.lead}&cover=${f.cover}` : "";
+      const r = await fetch("/api/shop/data" + qs);
+      const j = await r.json();
+      setState({ loading: false, ok: r.ok, data: j });
+      if (r.ok && j.params) {
+        setFilters({ lookback: j.params.lookbackDays, lead: j.params.leadTimeDays, cover: j.params.targetCoverDays });
+      }
+    } catch (e) {
+      setState({ loading: false, ok: false, data: { message: String(e) } });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => { load(null); }, []);
 
   if (state.loading) return <Shell><p>Loading store data…</p></Shell>;
   if (!state.ok) {
@@ -34,6 +48,25 @@ export default function Dashboard() {
 
   return (
     <Shell sub={shop}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end",
+        background: "#fff", border: "1px solid #E5E7EB", borderRadius: 14, padding: "14px 16px", marginBottom: 16 }}>
+        <Ctl label="Sales lookback (days)">
+          <input type="number" min="7" max="365" value={filters.lookback}
+            onChange={(e) => setFilters((f) => ({ ...f, lookback: +e.target.value }))} style={inp} />
+        </Ctl>
+        <Ctl label="Lead time (days)">
+          <input type="number" min="0" max="365" value={filters.lead}
+            onChange={(e) => setFilters((f) => ({ ...f, lead: +e.target.value }))} style={inp} />
+        </Ctl>
+        <Ctl label="Target cover (days)">
+          <input type="number" min="1" max="365" value={filters.cover}
+            onChange={(e) => setFilters((f) => ({ ...f, cover: +e.target.value }))} style={inp} />
+        </Ctl>
+        <button onClick={() => load(filters)} disabled={busy} style={applyBtn}>
+          {busy ? "Loading…" : "Apply"}
+        </button>
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 16 }}>
         <Card n={summary.orderNow} l="Order now" c="#DC2626" />
         <Card n={summary.reorderSoon} l="Reorder soon" c="#B45309" />
@@ -41,16 +74,16 @@ export default function Dashboard() {
         <Card n={summary.unitsToOrder.toLocaleString()} l="Units to order" />
       </div>
       {!summary.hasSales && (
-        <p style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, padding: 14, color: "#6B7280" }}>
-          No sales in the last {params.lookbackDays} days, so reorder quantities can’t be forecast yet.
+        <p style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, padding: 14, color: "#6B7280", marginBottom: 16 }}>
+          No sales in the last {params.lookbackDays} days, so reorder quantities can’t be forecast. Try a longer lookback above, or check the store has recent orders.
         </p>
       )}
-      <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 14, overflow: "hidden" }}>
+      <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 14, overflow: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
           <thead>
             <tr style={{ background: "#FAFBFC" }}>
               {["Product", "Variant", `Sold (${params.lookbackDays}d)`, "In stock", "Units/day", "Days cover", "Status", "Order qty"].map((h, i) => (
-                <th key={h} style={{ ...th, textAlign: i >= 2 && i <= 5 || i === 7 ? "right" : "left" }}>{h}</th>
+                <th key={h} style={{ ...th, textAlign: (i >= 2 && i <= 5) || i === 7 ? "right" : "left" }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -59,8 +92,8 @@ export default function Dashboard() {
               const m = STATUS[i.status];
               return (
                 <tr key={idx}>
-                  <td style={{ ...td, fontWeight: 600 }}>{i.title}</td>
-                  <td style={{ ...td, color: "#6B7280" }}>{i.variant || "—"}</td>
+                  <td style={{ ...td, fontWeight: 600, whiteSpace: "normal", maxWidth: 240 }}>{i.title}</td>
+                  <td style={{ ...td, color: "#6B7280", whiteSpace: "normal", maxWidth: 160 }}>{i.variant || "—"}</td>
                   <td style={{ ...td, textAlign: "right" }}>{i.unitsSold}</td>
                   <td style={{ ...td, textAlign: "right" }}>{i.stock}</td>
                   <td style={{ ...td, textAlign: "right" }}>{i.velocity ? i.velocity.toFixed(2) : "0"}</td>
@@ -78,9 +111,18 @@ export default function Dashboard() {
   );
 }
 
-const th = { padding: "11px 14px", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: "#6B7280" };
+const th = { padding: "11px 14px", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: "#6B7280", whiteSpace: "nowrap" };
 const td = { padding: "11px 14px", borderTop: "1px solid #F1F3F5", whiteSpace: "nowrap" };
 const btn = { display: "inline-block", background: "#BFFC00", color: "#0A0A0A", fontWeight: 800, padding: "10px 18px", borderRadius: 10, textDecoration: "none" };
+const inp = { width: 110, padding: "8px 10px", border: "1.5px solid #E5E7EB", borderRadius: 9, fontSize: 14, fontFamily: "inherit", background: "#FAFAFA", outline: "none", boxSizing: "border-box" };
+const applyBtn = { background: "#BFFC00", color: "#0A0A0A", fontWeight: 800, textTransform: "uppercase", letterSpacing: ".05em", fontSize: 13, border: "none", borderRadius: 10, padding: "10px 18px", cursor: "pointer", fontFamily: "inherit" };
+
+function Ctl({ label, children }) {
+  return <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+    <label style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: "#6B7280" }}>{label}</label>
+    {children}
+  </div>;
+}
 
 function Card({ n, l, c }) {
   return <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 14, padding: "14px 16px" }}>
