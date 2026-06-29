@@ -15,12 +15,16 @@ export default function Dashboard() {
   const [filters, setFilters] = useState({ lookback: 30, lead: 14, cover: 30 });
   const [busy, setBusy] = useState(false);
   const [page, setPage] = useState(0);
+  const [needsOnly, setNeedsOnly] = useState(true);
 
-  async function load(f) {
+  async function load(f, force) {
     setBusy(true);
     setPage(0);
     try {
-      const qs = f ? `?lookback=${f.lookback}&lead=${f.lead}&cover=${f.cover}` : "";
+      const parts = [];
+      if (f) parts.push(`lookback=${f.lookback}`, `lead=${f.lead}`, `cover=${f.cover}`);
+      if (force) parts.push("refresh=1");
+      const qs = parts.length ? "?" + parts.join("&") : "";
       const r = await fetch("/api/shop/data" + qs);
       const j = await r.json();
       setState({ loading: false, ok: r.ok, data: j });
@@ -48,9 +52,10 @@ export default function Dashboard() {
 
   const { items, summary, params, shop } = state.data;
   const sorted = [...items].sort((a, b) => (RANK[a.status] - RANK[b.status]) || (Math.min(a.daysCover,1e9) - Math.min(b.daysCover,1e9)));
-  const pageCount = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const visible = needsOnly ? sorted.filter((i) => i.status === "now" || i.status === "soon") : sorted;
+  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
-  const pageItems = sorted.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+  const pageItems = visible.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
 
   return (
     <Shell sub={shop}>
@@ -71,6 +76,11 @@ export default function Dashboard() {
         <button onClick={() => load(filters)} disabled={busy} style={applyBtn}>
           {busy ? "Loading…" : "Apply"}
         </button>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#374151", cursor: "pointer" }}>
+          <input type="checkbox" checked={needsOnly} onChange={(e) => { setNeedsOnly(e.target.checked); setPage(0); }} />
+          Needs reorder only
+        </label>
+        <button onClick={() => load(filters, true)} disabled={busy} style={pageBtn} title="Re-fetch live from Shopify (bypass cache)">↻ Refresh</button>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 16 }}>
@@ -114,7 +124,7 @@ export default function Dashboard() {
       </div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 12, flexWrap: "wrap" }}>
         <span style={{ color: "#6B7280", fontSize: 13 }}>
-          Showing {sorted.length === 0 ? 0 : safePage * PAGE_SIZE + 1}–{Math.min(sorted.length, safePage * PAGE_SIZE + PAGE_SIZE)} of {sorted.length.toLocaleString()}
+          Showing {visible.length === 0 ? 0 : safePage * PAGE_SIZE + 1}–{Math.min(visible.length, safePage * PAGE_SIZE + PAGE_SIZE)} of {visible.length.toLocaleString()}
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button onClick={() => setPage((x) => Math.max(0, x - 1))} disabled={safePage <= 0} style={pageBtn}>← Prev</button>
