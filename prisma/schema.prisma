@@ -15,6 +15,9 @@ model Shop {
   scopes        String?
   installedAt   DateTime    @default(now())
   uninstalledAt DateTime?
+  cacheVariants String?                          // cached raw variant data (JSON) for fast repeat loads
+  cacheLookback Int?
+  cacheAt       DateTime?
   settings      Settings?
   digestRuns    DigestRun[]
 }
