@@ -8,7 +8,8 @@ const STATUS = {
   none: { label: "No recent sales", bg: "#F3F4F6", fg: "#6B7280" },
 };
 const RANK = { now: 0, soon: 1, ok: 2, none: 3 };
-const PAGE_SIZE = 50;
+const STATUS_BY_RANK = ["now", "soon", "ok", "none"];
+const PAGE_SIZE = 50; // products per page
 
 export default function Dashboard() {
   const [state, setState] = useState({ loading: true });
@@ -16,10 +17,12 @@ export default function Dashboard() {
   const [busy, setBusy] = useState(false);
   const [page, setPage] = useState(0);
   const [needsOnly, setNeedsOnly] = useState(true);
+  const [expanded, setExpanded] = useState({});
 
   async function load(f, force) {
     setBusy(true);
     setPage(0);
+    setExpanded({});
     try {
       const parts = [];
       if (f) parts.push(`lookback=${f.lookback}`, `lead=${f.lead}`, `cover=${f.cover}`);
@@ -51,11 +54,32 @@ export default function Dashboard() {
   }
 
   const { items, summary, params, shop } = state.data;
-  const sorted = [...items].sort((a, b) => (RANK[a.status] - RANK[b.status]) || (Math.min(a.daysCover,1e9) - Math.min(b.daysCover,1e9)));
+  const sorted = [...items].sort((a, b) => (RANK[a.status] - RANK[b.status]) || (Math.min(a.daysCover, 1e9) - Math.min(b.daysCover, 1e9)));
   const visible = needsOnly ? sorted.filter((i) => i.status === "now" || i.status === "soon") : sorted;
-  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+
+  // Group variants under their parent product.
+  const groupMap = new Map();
+  for (const it of visible) {
+    let g = groupMap.get(it.title);
+    if (!g) { g = { title: it.title, variants: [], totalSold: 0, totalStock: 0, totalReorder: 0, worst: 3 }; groupMap.set(it.title, g); }
+    g.variants.push(it);
+    g.totalSold += it.unitsSold || 0;
+    g.totalStock += it.stock || 0;
+    g.totalReorder += it.reorderQty || 0;
+    if (RANK[it.status] < g.worst) g.worst = RANK[it.status];
+  }
+  const groups = [...groupMap.values()].sort((a, b) => (a.worst - b.worst) || (b.totalReorder - a.totalReorder));
+  const pageCount = Math.max(1, Math.ceil(groups.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
-  const pageItems = visible.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+  const pageGroups = groups.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+
+  const toggle = (t) => setExpanded((e) => ({ ...e, [t]: !e[t] }));
+  const allOpen = pageGroups.length > 0 && pageGroups.every((g) => expanded[g.title]);
+  const toggleAll = () => {
+    const next = { ...expanded };
+    for (const g of pageGroups) next[g.title] = !allOpen;
+    setExpanded(next);
+  };
 
   return (
     <Shell sub={shop}>
@@ -86,7 +110,7 @@ export default function Dashboard() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 16 }}>
         <Card n={summary.orderNow} l="Order now" c="#DC2626" />
         <Card n={summary.reorderSoon} l="Reorder soon" c="#B45309" />
-        <Card n={summary.total} l="SKUs tracked" />
+        <Card n={groups.length.toLocaleString()} l="Products" />
         <Card n={summary.unitsToOrder.toLocaleString()} l="Units to order" />
       </div>
       {!summary.hasSales && (
@@ -104,29 +128,56 @@ export default function Dashboard() {
             </tr>
           </thead>
           <tbody>
-            {pageItems.map((i, idx) => {
-              const m = STATUS[i.status];
-              return (
-                <tr key={idx}>
-                  <td style={{ ...td, fontWeight: 600, whiteSpace: "normal", maxWidth: 240 }}>{i.title}</td>
-                  <td style={{ ...td, color: "#6B7280", whiteSpace: "normal", maxWidth: 160 }}>{i.variant || "—"}</td>
-                  <td style={{ ...td, textAlign: "right" }}>{i.unitsSold}</td>
-                  <td style={{ ...td, textAlign: "right" }}>{i.stock}</td>
-                  <td style={{ ...td, textAlign: "right" }}>{i.velocity ? i.velocity.toFixed(2) : "0"}</td>
-                  <td style={{ ...td, textAlign: "right" }}>{i.daysCover === null || i.daysCover === Infinity ? "∞" : Math.round(i.daysCover)}</td>
-                  <td style={td}><span style={{ background: m.bg, color: m.fg, padding: "3px 10px", borderRadius: 99, fontWeight: 700, fontSize: 12 }}>{m.label}</span></td>
-                  <td style={{ ...td, textAlign: "right", fontWeight: i.reorderQty > 0 ? 800 : 400 }}>{i.reorderQty > 0 ? i.reorderQty : "—"}</td>
-                </tr>
-              );
+            {pageGroups.map((g) => {
+              const wm = STATUS[STATUS_BY_RANK[g.worst]];
+              const open = !!expanded[g.title];
+              const single = g.variants.length === 1;
+              const rows = [
+                <tr key={g.title} onClick={() => !single && toggle(g.title)}
+                  style={{ cursor: single ? "default" : "pointer", background: open ? "#FAFBFC" : "#fff" }}>
+                  <td style={{ ...td, fontWeight: 700, whiteSpace: "normal", maxWidth: 300 }}>
+                    <span style={{ display: "inline-block", width: 16, color: "#9CA3AF" }}>{single ? "" : (open ? "▾" : "▸")}</span>
+                    {g.title}
+                  </td>
+                  <td style={{ ...td, color: "#9CA3AF" }}>{single ? (g.variants[0].variant || "—") : `${g.variants.length} variants`}</td>
+                  <td style={{ ...td, textAlign: "right" }}>{single ? g.variants[0].unitsSold : g.totalSold}</td>
+                  <td style={{ ...td, textAlign: "right" }}>{single ? g.variants[0].stock : g.totalStock}</td>
+                  <td style={{ ...td, textAlign: "right", color: single ? undefined : "#9CA3AF" }}>{single ? (g.variants[0].velocity ? g.variants[0].velocity.toFixed(2) : "0") : "—"}</td>
+                  <td style={{ ...td, textAlign: "right", color: single ? undefined : "#9CA3AF" }}>{single ? (g.variants[0].daysCover === Infinity ? "∞" : Math.round(g.variants[0].daysCover)) : "—"}</td>
+                  <td style={td}><span style={badge(wm)}>{wm.label}</span></td>
+                  <td style={{ ...td, textAlign: "right", fontWeight: g.totalReorder > 0 ? 800 : 400 }}>{g.totalReorder > 0 ? g.totalReorder : "—"}</td>
+                </tr>,
+              ];
+              if (open && !single) {
+                for (const [vi, i] of g.variants.entries()) {
+                  const m = STATUS[i.status];
+                  rows.push(
+                    <tr key={g.title + "|" + vi} style={{ background: "#FCFCFD" }}>
+                      <td style={td}></td>
+                      <td style={{ ...td, color: "#4B5563", whiteSpace: "normal", maxWidth: 220, paddingLeft: 24 }}>
+                        {i.variant || "—"}{i.sku ? <span style={{ color: "#9CA3AF" }}> · {i.sku}</span> : null}
+                      </td>
+                      <td style={{ ...td, textAlign: "right" }}>{i.unitsSold}</td>
+                      <td style={{ ...td, textAlign: "right" }}>{i.stock}</td>
+                      <td style={{ ...td, textAlign: "right" }}>{i.velocity ? i.velocity.toFixed(2) : "0"}</td>
+                      <td style={{ ...td, textAlign: "right" }}>{i.daysCover === null || i.daysCover === Infinity ? "∞" : Math.round(i.daysCover)}</td>
+                      <td style={td}><span style={badge(m)}>{m.label}</span></td>
+                      <td style={{ ...td, textAlign: "right", fontWeight: i.reorderQty > 0 ? 800 : 400 }}>{i.reorderQty > 0 ? i.reorderQty : "—"}</td>
+                    </tr>
+                  );
+                }
+              }
+              return rows;
             })}
           </tbody>
         </table>
       </div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 12, flexWrap: "wrap" }}>
         <span style={{ color: "#6B7280", fontSize: 13 }}>
-          Showing {visible.length === 0 ? 0 : safePage * PAGE_SIZE + 1}–{Math.min(visible.length, safePage * PAGE_SIZE + PAGE_SIZE)} of {visible.length.toLocaleString()}
+          Showing {groups.length === 0 ? 0 : safePage * PAGE_SIZE + 1}–{Math.min(groups.length, safePage * PAGE_SIZE + PAGE_SIZE)} of {groups.length.toLocaleString()} products
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button onClick={toggleAll} disabled={pageGroups.length === 0} style={pageBtn}>{allOpen ? "Collapse all" : "Expand all"}</button>
           <button onClick={() => setPage((x) => Math.max(0, x - 1))} disabled={safePage <= 0} style={pageBtn}>← Prev</button>
           <span style={{ fontSize: 13, color: "#374151" }}>Page {safePage + 1} of {pageCount}</span>
           <button onClick={() => setPage((x) => Math.min(pageCount - 1, x + 1))} disabled={safePage >= pageCount - 1} style={pageBtn}>Next →</button>
@@ -143,6 +194,10 @@ const btn = { display: "inline-block", background: "#BFFC00", color: "#0A0A0A", 
 const inp = { width: 110, padding: "8px 10px", border: "1.5px solid #E5E7EB", borderRadius: 9, fontSize: 14, fontFamily: "inherit", background: "#FAFAFA", outline: "none", boxSizing: "border-box" };
 const pageBtn = { padding: "8px 14px", border: "1.5px solid #E5E7EB", borderRadius: 9, background: "#fff", fontWeight: 600, fontSize: 13, color: "#374151", cursor: "pointer", fontFamily: "inherit" };
 const applyBtn = { background: "#BFFC00", color: "#0A0A0A", fontWeight: 800, textTransform: "uppercase", letterSpacing: ".05em", fontSize: 13, border: "none", borderRadius: 10, padding: "10px 18px", cursor: "pointer", fontFamily: "inherit" };
+
+function badge(m) {
+  return { background: m.bg, color: m.fg, padding: "3px 10px", borderRadius: 99, fontWeight: 700, fontSize: 12, whiteSpace: "nowrap" };
+}
 
 function Ctl({ label, children }) {
   return <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
