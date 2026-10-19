@@ -38,7 +38,7 @@ export async function GET(request) {
     let blob = refresh ? null : readCache(shopRow, effective.lookbackDays, CACHE_MS);
     const fromCache = !!blob;
     if (!blob) {
-      blob = await fetchVariants(shopRow, effective.lookbackDays, { deadline: Date.now() + 270000 });
+      blob = await fetchVariants(shopRow, effective.lookbackDays, { deadline: Date.now() + 270000, prisma });
       await saveCache(prisma, shopRow, blob);
     }
     const data = analyseVariants(blob.list, effective);
@@ -49,7 +49,7 @@ export async function GET(request) {
   } catch (e) {
     if (e instanceof BulkTimeoutError) {
       return NextResponse.json({ error: "still_loading",
-        message: "Shopify is still preparing your store data (large catalogues can take a few minutes). Please try again shortly." }, { status: 503 });
+        message: "Shopify is still preparing your store data (large catalogues can take a few minutes). Try again in a minute: it carries on from where it got to." }, { status: 503 });
     }
     return NextResponse.json({ error: "shopify_error", message: String(e.message || e) }, { status: 502 });
   }

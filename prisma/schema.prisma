@@ -18,6 +18,7 @@ model Shop {
   cacheVariants String?                          // cached raw variant data (JSON) for fast repeat loads
   cacheLookback Int?
   cacheAt       DateTime?
+  pendingBulk   String?                          // in-flight Shopify bulk export ids (JSON), so retries resume
   insightJson   String?                          // last "What's selling" summary (JSON)
   insightKey    String?                          // which cached dataset it was written from
   insightAt     DateTime?
