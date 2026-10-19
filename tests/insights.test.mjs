@@ -27,8 +27,9 @@ t("no em dashes in rule summary", !JSON.stringify(r).includes("—"));
 
 // Stockout adjustment: sold out, last sale 10 days into a 30-day window
 const start = Date.UTC(2026, 9, 1);
-t("stockout active days", stockoutActiveDays({ stock: 0, unitsSold: 20, lastSaleAt: start + 9 * 86400000 }, start, 30) === 10);
-t("floor at 7", stockoutActiveDays({ stock: 0, unitsSold: 5, lastSaleAt: start + 86400000 }, start, 30) === 7);
+t("stockout active days", stockoutActiveDays({ stock: 0, unitsSold: 20, lastSaleAt: start + 19 * 86400000 }, start, 30) === 20);
+t("floor at 14", stockoutActiveDays({ stock: 0, unitsSold: 5, lastSaleAt: start + 86400000 }, start, 30) === 14);
+t("1-2 sales not adjusted", stockoutActiveDays({ stock: 0, unitsSold: 1, lastSaleAt: start + 86400000 }, start, 30) === undefined);
 t("in-stock not adjusted", stockoutActiveDays({ stock: 3, unitsSold: 20, lastSaleAt: start }, start, 30) === undefined);
 const adj = analyse([{ title: "X", unitsSold: 20, stock: 0, activeDays: 10 }], { lookbackDays: 30, leadTimeDays: 14, targetCoverDays: 30 })[0];
 t("adjusted velocity", Math.abs(adj.velocity - 2) < 1e-9 && adj.reorderQty === 88);
