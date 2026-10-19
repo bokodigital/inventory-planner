@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 
 const DAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const TIMEZONES = ["Australia/Sydney","Australia/Melbourne","Australia/Brisbane","Australia/Adelaide","Australia/Darwin","Australia/Perth","Australia/Hobart","Pacific/Auckland","Asia/Singapore","Asia/Kolkata","Asia/Manila","Asia/Jakarta","Europe/London","America/New_York","America/Los_Angeles","UTC"];
 
 export default function Settings() {
   const [s, setS] = useState(null);
@@ -9,26 +10,34 @@ export default function Settings() {
   const [status, setStatus] = useState({ loading: true });
   const [saving, setSaving] = useState(false);
   const [testMsg, setTestMsg] = useState("");
+  const [maxLookback, setMaxLookback] = useState(60);
+  const [vendors, setVendors] = useState([]);
 
   useEffect(() => {
     fetch("/api/settings").then((r) => r.json().then((j) => ({ ok: r.ok, j }))).then(({ ok, j }) => {
       if (!ok) { setStatus({ loading: false, ok: false, err: j.error }); return; }
       setShop(j.shop);
-      setS(j.settings || defaults());
+      setMaxLookback(j.maxLookback || 60);
+      setVendors(j.vendors || []);
+      setS({ ...defaults(), ...(j.settings || {}), vendorOverrides: (j.settings && j.settings.vendorOverrides) || [] });
       setStatus({ loading: false, ok: true });
     });
   }, []);
 
   function defaults() {
-    return { notifyEmail: "", lookbackDays: 30, leadTimeDays: 14, targetCoverDays: 30, cadence: "weekly", dayOfWeek: 1, dayOfMonth: 1, hour: 9, timezone: "Australia/Sydney", enabled: true };
+    return { notifyEmail: "", lookbackDays: 30, leadTimeDays: 14, targetCoverDays: 30, cadence: "weekly", dayOfWeek: 1, dayOfMonth: 1, hour: 9, timezone: "Australia/Sydney", enabled: true, vendorOverrides: [] };
   }
   const up = (k, v) => setS((p) => ({ ...p, [k]: v }));
+  const upO = (idx, k, v) => setS((p) => ({ ...p, vendorOverrides: p.vendorOverrides.map((o, i) => (i === idx ? { ...o, [k]: v } : o)) }));
+  const addO = () => setS((p) => ({ ...p, vendorOverrides: [...p.vendorOverrides, { vendor: "", leadTimeDays: "", targetCoverDays: "" }] }));
+  const delO = (idx) => setS((p) => ({ ...p, vendorOverrides: p.vendorOverrides.filter((_, i) => i !== idx) }));
 
   async function save() {
     setSaving(true); setTestMsg("");
     const r = await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(s) });
     const j = await r.json();
     setSaving(false);
+    if (r.ok && j.settings) setS((p) => ({ ...p, ...j.settings }));
     setTestMsg(r.ok ? "Saved ✓" : (j.message || "Save failed"));
   }
 
@@ -71,19 +80,21 @@ export default function Settings() {
           </Row>
         )}
 
-        <Row label="Send time (hour)">
+        <Row label="Send time (hour)" hint="Sent within the hour you choose. If a send is missed it goes out on the next run that day.">
           <select style={inp} value={s.hour} onChange={(e) => up("hour", +e.target.value)}>
             {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}
           </select>
         </Row>
         <Row label="Timezone">
-          <input style={inp} value={s.timezone} onChange={(e) => up("timezone", e.target.value)} placeholder="Australia/Sydney" />
+          <select style={inp} value={s.timezone} onChange={(e) => up("timezone", e.target.value)}>
+            {(TIMEZONES.includes(s.timezone) ? TIMEZONES : [s.timezone, ...TIMEZONES]).map((z) => <option key={z} value={z}>{z.replace(/_/g, " ")}</option>)}
+          </select>
         </Row>
 
         <hr style={{ border: "none", borderTop: "1px solid #eee", margin: "18px 0" }} />
 
-        <Row label="Sales lookback (days)" hint="Window used to estimate velocity">
-          <input style={inp} type="number" min="7" max="365" value={s.lookbackDays} onChange={(e) => up("lookbackDays", +e.target.value)} />
+        <Row label="Sales lookback (days)" hint={`Window used to estimate velocity. Maximum ${maxLookback} days${maxLookback === 60 ? " (Shopify only shares the last 60 days of orders)" : ""}.`}>
+          <input style={inp} type="number" min="7" max={maxLookback} value={s.lookbackDays} onChange={(e) => up("lookbackDays", +e.target.value)} />
         </Row>
         <Row label="Supplier lead time (days)">
           <input style={inp} type="number" min="0" max="365" value={s.leadTimeDays} onChange={(e) => up("leadTimeDays", +e.target.value)} />
@@ -91,6 +102,24 @@ export default function Settings() {
         <Row label="Target days of cover">
           <input style={inp} type="number" min="1" max="365" value={s.targetCoverDays} onChange={(e) => up("targetCoverDays", +e.target.value)} />
         </Row>
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: "block", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: "#6B7280", marginBottom: 4 }}>Supplier overrides</label>
+          <p style={{ margin: "0 0 8px", fontSize: 12, color: "#9CA3AF" }}>
+            Different lead time or cover for a supplier, matched on the product’s Vendor in Shopify. Leave a box blank to use the store default.
+          </p>
+          {s.vendorOverrides.map((o, idx) => (
+            <div key={idx} style={{ display: "grid", gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) auto", gap: 6, marginBottom: 6 }}>
+              <input style={inp} list="vendor-list" value={o.vendor} placeholder="Vendor" onChange={(e) => upO(idx, "vendor", e.target.value)} />
+              <input style={inp} type="number" min="0" max="365" value={o.leadTimeDays ?? ""} placeholder="Lead (days)" onChange={(e) => upO(idx, "leadTimeDays", e.target.value)} />
+              <input style={inp} type="number" min="1" max="365" value={o.targetCoverDays ?? ""} placeholder="Cover" onChange={(e) => upO(idx, "targetCoverDays", e.target.value)} />
+              <button onClick={() => delO(idx)} aria-label="Remove override" style={{ ...btn, background: "#fff", border: "1.5px solid #E5E7EB", padding: "8px 12px" }}>✕</button>
+            </div>
+          ))}
+          <datalist id="vendor-list">{vendors.map((v) => <option key={v} value={v} />)}</datalist>
+          <button onClick={addO} style={{ ...btn, background: "#fff", border: "1.5px solid #E5E7EB", padding: "8px 14px", fontSize: 13 }}>+ Add supplier override</button>
+          {vendors.length === 0 && <p style={{ margin: "6px 0 0", fontSize: 12, color: "#9CA3AF" }}>Open the dashboard once to load your supplier names here.</p>}
+        </div>
+
         <Row label="Enabled" hint="Turn the scheduled digest on/off">
           <input type="checkbox" checked={!!s.enabled} onChange={(e) => up("enabled", e.target.checked)} />
         </Row>

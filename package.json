@@ -8,7 +8,8 @@
     "start": "next start",
     "postinstall": "prisma generate",
     "db:push": "prisma db push",
-    "test:reorder": "node tests/reorder.test.mjs"
+    "test:reorder": "node tests/reorder.test.mjs",
+    "test": "node tests/reorder.test.mjs && node tests/schedule.test.mjs && node tests/insights.test.mjs"
   },
   "dependencies": {
     "next": "^14.2.5",
