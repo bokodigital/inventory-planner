@@ -6,7 +6,7 @@ import { BulkTimeoutError } from "@/lib/shopify";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 const CACHE_MS = 60 * 60 * 1000; // 1 hour
 
@@ -38,7 +38,8 @@ export async function GET(request) {
     let blob = refresh ? null : readCache(shopRow, effective.lookbackDays, CACHE_MS);
     const fromCache = !!blob;
     if (!blob) {
-      blob = await fetchVariants(shopRow, effective.lookbackDays, { deadline: Date.now() + 270000, prisma });
+      // Short wait per request; the dashboard polls and each poll resumes the same Shopify export.
+      blob = await fetchVariants(shopRow, effective.lookbackDays, { deadline: Date.now() + 25000, prisma });
       await saveCache(prisma, shopRow, blob);
     }
     const data = analyseVariants(blob.list, effective);
@@ -48,8 +49,10 @@ export async function GET(request) {
     });
   } catch (e) {
     if (e instanceof BulkTimeoutError) {
-      return NextResponse.json({ error: "still_loading",
-        message: "Shopify is still preparing your store data (large catalogues can take a few minutes). Try again in a minute: it carries on from where it got to." }, { status: 503 });
+      let startedAt = null;
+      try { startedAt = JSON.parse(shopRow.pendingBulk || "null")?.startedAt || null; } catch {}
+      return NextResponse.json({ loading: true, startedAt,
+        message: "Shopify is preparing your store data. Large catalogues can take a few minutes." }, { status: 202 });
     }
     return NextResponse.json({ error: "shopify_error", message: String(e.message || e) }, { status: 502 });
   }

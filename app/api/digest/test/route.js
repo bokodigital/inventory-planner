@@ -8,7 +8,7 @@ import { BulkTimeoutError } from "@/lib/shopify";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 export async function POST(request) {
   const shop = shopFromRequest(request);
@@ -18,7 +18,7 @@ export async function POST(request) {
   const to = shopRow.settings && shopRow.settings.notifyEmail;
   if (!to) return NextResponse.json({ error: "no_email", message: "Set a notification email first." }, { status: 400 });
   try {
-    const data = await buildReorder(prisma, shopRow, shopRow.settings, { deadline: Date.now() + 200000 });
+    const data = await buildReorder(prisma, shopRow, shopRow.settings, { deadline: Date.now() + 40000 });
     data.insights = await buildSummary(data.items, data.params).catch(() => null);
     const emailId = await sendDigest(to, shopRow.shopDomain, data);
     // Recorded as "test" so it never blocks that day's scheduled digest.

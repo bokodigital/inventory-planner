@@ -19,6 +19,7 @@ export default function Dashboard() {
   const [needsOnly, setNeedsOnly] = useState(true);
   const [expanded, setExpanded] = useState({});
   const [insights, setInsights] = useState({ loading: false });
+  const [loadingMsg, setLoadingMsg] = useState("");
 
   async function loadInsights(lookback, regenerate) {
     setInsights({ loading: true });
@@ -32,10 +33,9 @@ export default function Dashboard() {
     }
   }
 
-  async function load(f, force) {
+  async function load(f, force, attempt = 0) {
     setBusy(true);
-    setPage(0);
-    setExpanded({});
+    if (!attempt) { setPage(0); setExpanded({}); }
     try {
       const parts = [];
       if (f) parts.push(`lookback=${f.lookback}`, `lead=${f.lead}`, `cover=${f.cover}`);
@@ -43,21 +43,33 @@ export default function Dashboard() {
       const qs = parts.length ? "?" + parts.join("&") : "";
       const r = await fetch("/api/shop/data" + qs);
       const j = await r.json();
+      if (r.status === 202 && j.loading) {
+        // Shopify export still running: poll again (each poll resumes the same export).
+        if (attempt < 120) {
+          setLoadingMsg(j.message + (j.startedAt ? ` (${Math.max(1, Math.round((Date.now() - j.startedAt) / 60000))} min so far)` : ""));
+          setTimeout(() => load(f, force, attempt + 1), 4000);
+          return;
+        }
+        setState({ loading: false, ok: false, data: { error: "still_loading", message: "Shopify is taking unusually long. Please try again later." } });
+        setBusy(false);
+        return;
+      }
+      setLoadingMsg("");
       setState({ loading: false, ok: r.ok, data: j });
       if (r.ok && j.params) {
         setFilters({ lookback: j.params.lookbackDays, lead: j.params.leadTimeDays, cover: j.params.targetCoverDays });
         loadInsights(j.params.lookbackDays, false);
       }
     } catch (e) {
+      if (attempt < 120) { setTimeout(() => load(f, force, attempt + 1), 5000); return; } // transient network error
       setState({ loading: false, ok: false, data: { message: String(e) } });
-    } finally {
-      setBusy(false);
     }
+    setBusy(false);
   }
 
   useEffect(() => { load(null); }, []);
 
-  if (state.loading) return <Shell><p>Loading store data…</p></Shell>;
+  if (state.loading) return <Shell><p>{loadingMsg || "Loading store data…"}</p></Shell>;
   if (!state.ok) {
     const notConnected = state.data && state.data.error === "not_connected";
     const stillLoading = state.data && state.data.error === "still_loading";
