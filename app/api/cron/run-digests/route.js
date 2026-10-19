@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { buildReorder } from "@/lib/digest";
 import { buildSummary } from "@/lib/insights";
 import { sendDigest } from "@/lib/email";
+import { BulkTimeoutError } from "@/lib/shopify";
 import { localParts, isDue } from "@/lib/schedule";
 
 export const runtime = "nodejs";
@@ -45,12 +46,17 @@ export async function GET(request) {
     if (Date.now() - started > START_BUDGET_MS) { deferred++; continue; }
 
     try {
-      const data = await buildReorder(prisma, shopRow, s, { deadline: started + 280000 });
+      const data = await buildReorder(prisma, shopRow, s, { deadline: Math.min(started + 270000, Date.now() + 120000) });
       data.insights = await buildSummary(data.items, data.params).catch(() => null);
       const emailId = await sendDigest(s.notifyEmail, shopRow.shopDomain, data);
       await prisma.digestRun.create({ data: { shopId: shopRow.id, status: "sent", itemsFlagged: data.summary.orderNow, emailId } });
       results.push({ shop: shopRow.shopDomain, status: "sent", flagged: data.summary.orderNow });
     } catch (e) {
+      if (e instanceof BulkTimeoutError) {
+        // Shopify export still running: not an error. The next run resumes it.
+        results.push({ shop: shopRow.shopDomain, status: "waiting_for_shopify" });
+        continue;
+      }
       await prisma.digestRun.create({ data: { shopId: shopRow.id, status: "error", error: String(e.message || e) } }).catch(() => {});
       results.push({ shop: shopRow.shopDomain, status: "error", error: String(e.message || e) });
     }
