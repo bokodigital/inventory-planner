@@ -99,6 +99,14 @@ export default function Dashboard() {
     g.totalReorder += it.reorderQty || 0;
     if (RANK[it.status] < g.worst) g.worst = RANK[it.status];
   }
+  // Card counts are per product (worst status across its variants), over the whole catalogue.
+  const allWorst = new Map();
+  for (const it of items) {
+    const k = it.productId || it.title;
+    allWorst.set(k, Math.min(allWorst.has(k) ? allWorst.get(k) : 3, RANK[it.status]));
+  }
+  const productsOrderNow = [...allWorst.values()].filter((r) => r === 0).length;
+  const productsSoon = [...allWorst.values()].filter((r) => r === 1).length;
   const groups = [...groupMap.values()].sort((a, b) => (a.worst - b.worst) || (b.totalReorder - a.totalReorder));
   const pageCount = Math.max(1, Math.ceil(groups.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
@@ -147,9 +155,9 @@ export default function Dashboard() {
       <Insights state={insights} onRegenerate={() => loadInsights(params.lookbackDays, true)} />
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 16 }}>
-        <Card n={summary.orderNow} l="Order now" c="#DC2626" />
-        <Card n={summary.reorderSoon} l="Reorder soon" c="#B45309" />
-        <Card n={groups.length.toLocaleString()} l="Products" />
+        <Card n={productsOrderNow.toLocaleString()} l="Products to order now" c="#DC2626" />
+        <Card n={productsSoon.toLocaleString()} l="Products to reorder soon" c="#B45309" />
+        <Card n={allWorst.size.toLocaleString()} l="Products tracked" />
         <Card n={summary.unitsToOrder.toLocaleString()} l="Units to order" />
       </div>
       {!summary.hasSales && (
@@ -185,7 +193,7 @@ export default function Dashboard() {
                   <td style={{ ...td, textAlign: "right" }}>{single ? g.variants[0].unitsSold : g.totalSold}</td>
                   <td style={{ ...td, textAlign: "right" }}>{single ? g.variants[0].stock : g.totalStock}</td>
                   <td style={{ ...td, textAlign: "right", color: single ? undefined : "#9CA3AF" }}>{single ? <Rate i={g.variants[0]} /> : "—"}</td>
-                  <td style={{ ...td, textAlign: "right", color: single ? undefined : "#9CA3AF" }}>{single ? (g.variants[0].daysCover === Infinity ? "∞" : Math.round(g.variants[0].daysCover)) : "—"}</td>
+                  <td style={{ ...td, textAlign: "right", color: single ? undefined : "#9CA3AF" }}>{single ? fmtCover(g.variants[0]) : "—"}</td>
                   <td style={td}><span style={badge(wm)}>{wm.label}</span></td>
                   <td style={{ ...td, textAlign: "right", fontWeight: g.totalReorder > 0 ? 800 : 400 }}>{g.totalReorder > 0 ? g.totalReorder : "—"}</td>
                 </tr>,
@@ -202,7 +210,7 @@ export default function Dashboard() {
                       <td style={{ ...td, textAlign: "right" }}>{i.unitsSold}</td>
                       <td style={{ ...td, textAlign: "right" }}>{i.stock}</td>
                       <td style={{ ...td, textAlign: "right" }}><Rate i={i} /></td>
-                      <td style={{ ...td, textAlign: "right" }}>{i.daysCover === null || i.daysCover === Infinity ? "∞" : Math.round(i.daysCover)}</td>
+                      <td style={{ ...td, textAlign: "right" }}>{fmtCover(i)}</td>
                       <td style={td}><span style={badge(m)}>{m.label}</span></td>
                       <td style={{ ...td, textAlign: "right", fontWeight: i.reorderQty > 0 ? 800 : 400 }}>{i.reorderQty > 0 ? i.reorderQty : "—"}</td>
                     </tr>
@@ -241,6 +249,12 @@ const btn = { display: "inline-block", background: "#BFFC00", color: "#0A0A0A", 
 const inp = { width: 110, padding: "8px 10px", border: "1.5px solid #E5E7EB", borderRadius: 9, fontSize: 14, fontFamily: "inherit", background: "#FAFAFA", outline: "none", boxSizing: "border-box" };
 const pageBtn = { padding: "8px 14px", border: "1.5px solid #E5E7EB", borderRadius: 9, background: "#fff", fontWeight: 600, fontSize: 13, color: "#374151", cursor: "pointer", fontFamily: "inherit" };
 const applyBtn = { background: "#BFFC00", color: "#0A0A0A", fontWeight: 800, textTransform: "uppercase", letterSpacing: ".05em", fontSize: 13, border: "none", borderRadius: 10, padding: "10px 18px", cursor: "pointer", fontFamily: "inherit" };
+
+// Infinity is sent as null in JSON: stock with no sales means unlimited cover.
+function fmtCover(i) {
+  if (i.daysCover === null || i.daysCover === Infinity) return i.stock > 0 ? "∞" : "0";
+  return Math.round(i.daysCover);
+}
 
 function Rate({ i }) {
   const v = i.velocity ? i.velocity.toFixed(2) : "0";
