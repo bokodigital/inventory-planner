@@ -1,0 +1,24 @@
+# Hourly trigger for the restock digest dispatcher.
+# Vercel Hobby only allows a daily cron, so this calls the protected endpoint every hour
+# so each merchant's digest goes out at the hour they chose.
+# Needs two repository secrets: APP_URL (e.g. https://bokodigital-inventory-planner.vercel.app)
+# and CRON_SECRET (same value as in Vercel).
+# Note: GitHub pauses scheduled workflows after 60 days with no commits to the repo.
+# The daily Vercel cron in vercel.json stays as a safety net.
+name: Hourly digest dispatcher
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch: {}
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Call /api/cron/run-digests
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$CRON_SECRET" ]; then echo "APP_URL / CRON_SECRET secrets not set"; exit 1; fi
+          curl -fsS --max-time 320 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/run-digests"

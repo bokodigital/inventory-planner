@@ -18,6 +18,19 @@ export default function Dashboard() {
   const [page, setPage] = useState(0);
   const [needsOnly, setNeedsOnly] = useState(true);
   const [expanded, setExpanded] = useState({});
+  const [insights, setInsights] = useState({ loading: false });
+
+  async function loadInsights(lookback, regenerate) {
+    setInsights({ loading: true });
+    try {
+      const qs = `?lookback=${lookback}` + (regenerate ? "&regenerate=1" : "");
+      const r = await fetch("/api/shop/insights" + qs);
+      const j = await r.json();
+      setInsights({ loading: false, ok: r.ok, data: j });
+    } catch (e) {
+      setInsights({ loading: false, ok: false, data: { message: String(e) } });
+    }
+  }
 
   async function load(f, force) {
     setBusy(true);
@@ -33,6 +46,7 @@ export default function Dashboard() {
       setState({ loading: false, ok: r.ok, data: j });
       if (r.ok && j.params) {
         setFilters({ lookback: j.params.lookbackDays, lead: j.params.leadTimeDays, cover: j.params.targetCoverDays });
+        loadInsights(j.params.lookbackDays, false);
       }
     } catch (e) {
       setState({ loading: false, ok: false, data: { message: String(e) } });
@@ -46,22 +60,27 @@ export default function Dashboard() {
   if (state.loading) return <Shell><p>Loading store data…</p></Shell>;
   if (!state.ok) {
     const notConnected = state.data && state.data.error === "not_connected";
+    const stillLoading = state.data && state.data.error === "still_loading";
     return <Shell>
-      <h2 style={{ marginTop: 0 }}>{notConnected ? "Connect your store" : "Couldn’t load data"}</h2>
+      <h2 style={{ marginTop: 0 }}>{notConnected ? "Connect your store" : stillLoading ? "Still loading your store" : "Couldn’t load data"}</h2>
       <p style={{ color: "#6B7280" }}>{notConnected ? "You need to connect a Shopify store first." : (state.data && state.data.message)}</p>
-      <a href="/" style={btn}>Go to connect</a>
+      {notConnected
+        ? <a href="/" style={btn}>Go to connect</a>
+        : <button onClick={() => { setState({ loading: true }); load(null); }} style={{ ...btn, border: "none", cursor: "pointer" }}>Try again</button>}
     </Shell>;
   }
 
-  const { items, summary, params, shop } = state.data;
+  const { items, summary, params, shop, maxLookback = 60, lookbackCapped } = state.data;
+  const overrideCount = (params.vendorOverrides || []).length;
   const sorted = [...items].sort((a, b) => (RANK[a.status] - RANK[b.status]) || (Math.min(a.daysCover, 1e9) - Math.min(b.daysCover, 1e9)));
   const visible = needsOnly ? sorted.filter((i) => i.status === "now" || i.status === "soon") : sorted;
 
   // Group variants under their parent product.
   const groupMap = new Map();
   for (const it of visible) {
-    let g = groupMap.get(it.title);
-    if (!g) { g = { title: it.title, variants: [], totalSold: 0, totalStock: 0, totalReorder: 0, worst: 3 }; groupMap.set(it.title, g); }
+    const gid = it.productId || it.title; // group by Shopify product ID, not name
+    let g = groupMap.get(gid);
+    if (!g) { g = { id: gid, title: it.title, vendor: it.vendor, overridden: it.overridden, variants: [], totalSold: 0, totalStock: 0, totalReorder: 0, worst: 3 }; groupMap.set(gid, g); }
     g.variants.push(it);
     g.totalSold += it.unitsSold || 0;
     g.totalStock += it.stock || 0;
@@ -74,10 +93,10 @@ export default function Dashboard() {
   const pageGroups = groups.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
 
   const toggle = (t) => setExpanded((e) => ({ ...e, [t]: !e[t] }));
-  const allOpen = pageGroups.length > 0 && pageGroups.every((g) => expanded[g.title]);
+  const allOpen = pageGroups.length > 0 && pageGroups.every((g) => expanded[g.id]);
   const toggleAll = () => {
     const next = { ...expanded };
-    for (const g of pageGroups) next[g.title] = !allOpen;
+    for (const g of pageGroups) next[g.id] = !allOpen;
     setExpanded(next);
   };
 
@@ -86,7 +105,7 @@ export default function Dashboard() {
       <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end",
         background: "#fff", border: "1px solid #E5E7EB", borderRadius: 14, padding: "14px 16px", marginBottom: 16 }}>
         <Ctl label="Sales lookback (days)">
-          <input type="number" min="7" max="365" value={filters.lookback}
+          <input type="number" min="7" max={maxLookback} value={filters.lookback}
             onChange={(e) => setFilters((f) => ({ ...f, lookback: +e.target.value }))} style={inp} />
         </Ctl>
         <Ctl label="Lead time (days)">
@@ -105,9 +124,17 @@ export default function Dashboard() {
           Needs reorder only
         </label>
         <button onClick={() => load(filters, true)} disabled={busy} style={pageBtn} title="Re-fetch live from Shopify (bypass cache)">↻ Refresh</button>
+        {(overrideCount > 0 || lookbackCapped) && (
+          <p style={{ flexBasis: "100%", margin: 0, fontSize: 12, color: "#6B7280" }}>
+            {lookbackCapped && <>Sales lookback is limited to {maxLookback} days: Shopify only shares the last 60 days of orders unless the app is approved for full order history. </>}
+            {overrideCount > 0 && <>{overrideCount} supplier override{overrideCount > 1 ? "s" : ""} from <a href="/settings">Settings</a> still apply on top of these values.</>}
+          </p>
+        )}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 16 }}>
+      <Insights state={insights} onRegenerate={() => loadInsights(params.lookbackDays, true)} />
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 16 }}>
         <Card n={summary.orderNow} l="Order now" c="#DC2626" />
         <Card n={summary.reorderSoon} l="Reorder soon" c="#B45309" />
         <Card n={groups.length.toLocaleString()} l="Products" />
@@ -130,19 +157,22 @@ export default function Dashboard() {
           <tbody>
             {pageGroups.map((g) => {
               const wm = STATUS[STATUS_BY_RANK[g.worst]];
-              const open = !!expanded[g.title];
+              const open = !!expanded[g.id];
               const single = g.variants.length === 1;
               const rows = [
-                <tr key={g.title} onClick={() => !single && toggle(g.title)}
+                <tr key={g.id} onClick={() => !single && toggle(g.id)}
                   style={{ cursor: single ? "default" : "pointer", background: open ? "#FAFBFC" : "#fff" }}>
                   <td style={{ ...td, fontWeight: 700, whiteSpace: "normal", maxWidth: 300 }}>
                     <span style={{ display: "inline-block", width: 16, color: "#9CA3AF" }}>{single ? "" : (open ? "▾" : "▸")}</span>
                     {g.title}
+                    {g.vendor && <div style={{ fontWeight: 400, fontSize: 12, color: "#9CA3AF", paddingLeft: 16 }}>
+                      {g.vendor}{g.overridden ? ` · ${g.variants[0].leadTimeDays}d lead time` : ""}
+                    </div>}
                   </td>
                   <td style={{ ...td, color: "#9CA3AF" }}>{single ? (g.variants[0].variant || "—") : `${g.variants.length} variants`}</td>
                   <td style={{ ...td, textAlign: "right" }}>{single ? g.variants[0].unitsSold : g.totalSold}</td>
                   <td style={{ ...td, textAlign: "right" }}>{single ? g.variants[0].stock : g.totalStock}</td>
-                  <td style={{ ...td, textAlign: "right", color: single ? undefined : "#9CA3AF" }}>{single ? (g.variants[0].velocity ? g.variants[0].velocity.toFixed(2) : "0") : "—"}</td>
+                  <td style={{ ...td, textAlign: "right", color: single ? undefined : "#9CA3AF" }}>{single ? <Rate i={g.variants[0]} /> : "—"}</td>
                   <td style={{ ...td, textAlign: "right", color: single ? undefined : "#9CA3AF" }}>{single ? (g.variants[0].daysCover === Infinity ? "∞" : Math.round(g.variants[0].daysCover)) : "—"}</td>
                   <td style={td}><span style={badge(wm)}>{wm.label}</span></td>
                   <td style={{ ...td, textAlign: "right", fontWeight: g.totalReorder > 0 ? 800 : 400 }}>{g.totalReorder > 0 ? g.totalReorder : "—"}</td>
@@ -152,14 +182,14 @@ export default function Dashboard() {
                 for (const [vi, i] of g.variants.entries()) {
                   const m = STATUS[i.status];
                   rows.push(
-                    <tr key={g.title + "|" + vi} style={{ background: "#FCFCFD" }}>
+                    <tr key={g.id + "|" + vi} style={{ background: "#FCFCFD" }}>
                       <td style={td}></td>
                       <td style={{ ...td, color: "#4B5563", whiteSpace: "normal", maxWidth: 220, paddingLeft: 24 }}>
                         {i.variant || "—"}{i.sku ? <span style={{ color: "#9CA3AF" }}> · {i.sku}</span> : null}
                       </td>
                       <td style={{ ...td, textAlign: "right" }}>{i.unitsSold}</td>
                       <td style={{ ...td, textAlign: "right" }}>{i.stock}</td>
-                      <td style={{ ...td, textAlign: "right" }}>{i.velocity ? i.velocity.toFixed(2) : "0"}</td>
+                      <td style={{ ...td, textAlign: "right" }}><Rate i={i} /></td>
                       <td style={{ ...td, textAlign: "right" }}>{i.daysCover === null || i.daysCover === Infinity ? "∞" : Math.round(i.daysCover)}</td>
                       <td style={td}><span style={badge(m)}>{m.label}</span></td>
                       <td style={{ ...td, textAlign: "right", fontWeight: i.reorderQty > 0 ? 800 : 400 }}>{i.reorderQty > 0 ? i.reorderQty : "—"}</td>
@@ -183,6 +213,11 @@ export default function Dashboard() {
           <button onClick={() => setPage((x) => Math.min(pageCount - 1, x + 1))} disabled={safePage >= pageCount - 1} style={pageBtn}>Next →</button>
         </div>
       </div>
+      {items.some((i) => i.activeDays) && (
+        <p style={{ fontSize: 12, color: "#6B7280", marginTop: 10 }}>
+          * Sold out: the sales rate is measured over the days the item was in stock, not the full lookback, so sell-outs don’t look like slow sellers.
+        </p>
+      )}
       <p style={{ textAlign: "center", marginTop: 14 }}><a href="/settings" style={{ color: "#4B5563" }}>Settings &amp; schedule →</a></p>
     </Shell>
   );
@@ -194,6 +229,45 @@ const btn = { display: "inline-block", background: "#BFFC00", color: "#0A0A0A", 
 const inp = { width: 110, padding: "8px 10px", border: "1.5px solid #E5E7EB", borderRadius: 9, fontSize: 14, fontFamily: "inherit", background: "#FAFAFA", outline: "none", boxSizing: "border-box" };
 const pageBtn = { padding: "8px 14px", border: "1.5px solid #E5E7EB", borderRadius: 9, background: "#fff", fontWeight: 600, fontSize: 13, color: "#374151", cursor: "pointer", fontFamily: "inherit" };
 const applyBtn = { background: "#BFFC00", color: "#0A0A0A", fontWeight: 800, textTransform: "uppercase", letterSpacing: ".05em", fontSize: 13, border: "none", borderRadius: 10, padding: "10px 18px", cursor: "pointer", fontFamily: "inherit" };
+
+function Rate({ i }) {
+  const v = i.velocity ? i.velocity.toFixed(2) : "0";
+  if (!i.activeDays) return v;
+  return <span title={`Sold out. Rate measured over ${i.activeDays} days in stock.`}>{v}*</span>;
+}
+
+function Insights({ state, onRegenerate }) {
+  const box = { background: "#fff", border: "1px solid #E5E7EB", borderLeft: "4px solid #BFFC00", borderRadius: 14, padding: "16px 18px", marginBottom: 16 };
+  const label = { fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: "#6B7280", margin: "12px 0 4px" };
+  if (state.loading || !state.data) {
+    return <div style={box}><div style={{ ...label, marginTop: 0 }}>What’s selling</div><p style={{ margin: 0, color: "#6B7280" }}>Writing your sales summary…</p></div>;
+  }
+  if (!state.ok) {
+    return <div style={box}><div style={{ ...label, marginTop: 0 }}>What’s selling</div><p style={{ margin: 0, color: "#6B7280" }}>Couldn’t write the summary: {state.data.message || "unknown error"}</p></div>;
+  }
+  const d = state.data;
+  const List = ({ t, a }) => (a && a.length ? <>
+    <div style={label}>{t}</div>
+    <ul style={{ margin: 0, paddingLeft: 18, color: "#374151", fontSize: 14, lineHeight: 1.55 }}>{a.map((x, k) => <li key={k}>{x}</li>)}</ul>
+  </> : null);
+  return (
+    <div style={box}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "baseline" }}>
+        <div style={{ ...label, marginTop: 0 }}>What’s selling</div>
+        <span style={{ fontSize: 11, color: "#9CA3AF" }}>
+          {d.source === "ai" ? "Written by AI from your sales data" : "Automatic summary (AI not configured)"}
+          {d.generatedAt ? ` · ${new Date(d.generatedAt).toLocaleString("en-AU", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}` : ""}
+          {" · "}<a href="#" onClick={(e) => { e.preventDefault(); onRegenerate(); }} style={{ color: "#4B5563" }}>Rewrite</a>
+        </span>
+      </div>
+      <p style={{ margin: "2px 0 0", fontWeight: 700, fontSize: 16 }}>{d.headline}</p>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: "0 24px" }}>
+        <div><List t="What customers liked" a={d.liked} /><List t="Trends" a={d.trends} /></div>
+        <div><List t="Recommendations" a={d.recommendations} /></div>
+      </div>
+    </div>
+  );
+}
 
 function badge(m) {
   return { background: m.bg, color: m.fg, padding: "3px 10px", borderRadius: 99, fontWeight: 700, fontSize: 12, whiteSpace: "nowrap" };

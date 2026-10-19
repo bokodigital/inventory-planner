@@ -18,6 +18,9 @@ model Shop {
   cacheVariants String?                          // cached raw variant data (JSON) for fast repeat loads
   cacheLookback Int?
   cacheAt       DateTime?
+  insightJson   String?                          // last "What's selling" summary (JSON)
+  insightKey    String?                          // which cached dataset it was written from
+  insightAt     DateTime?
   settings      Settings?
   digestRuns    DigestRun[]
 }
@@ -35,6 +38,7 @@ model Settings {
   dayOfMonth      Int      @default(1)           // used for monthly
   hour            Int      @default(9)           // 0..23 local hour
   timezone        String   @default("Australia/Sydney")
+  vendorOverrides String?                       // JSON [{vendor, leadTimeDays, targetCoverDays}] per-supplier overrides
   enabled         Boolean  @default(true)
   updatedAt       DateTime @updatedAt
 }
@@ -44,7 +48,7 @@ model DigestRun {
   shop         Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
   shopId       String
   ranAt        DateTime @default(now())
-  status       String                            // sent | skipped | error
+  status       String                            // sent | test | error
   itemsFlagged Int      @default(0)
   emailId      String?
   error        String?
