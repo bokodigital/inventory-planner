@@ -32,6 +32,11 @@ export default function Home() {
           style={{ width: "100%", padding: "11px 14px", border: "1.5px solid #E5E7EB", borderRadius: 10, fontSize: 14, fontFamily: "inherit", background: "#FAFAFA", outline: "none", boxSizing: "border-box" }}
         />
 
+        {clean && !valid && (
+          <p style={{ color: "#B45309", fontSize: 12, margin: "6px 0 0" }}>
+            Use your store's myshopify.com address (find it in Shopify admin under Settings, Domains), e.g. your-store.myshopify.com
+          </p>
+        )}
         <a
           href={valid ? href : "#"}
           aria-disabled={!valid}
